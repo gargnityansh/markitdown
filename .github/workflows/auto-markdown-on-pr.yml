@@ -3,6 +3,7 @@ name: Auto-generate Markdown for uploaded files
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+  push:
 
 permissions:
   contents: write
@@ -10,7 +11,7 @@ permissions:
 jobs:
   generate-markdown:
     runs-on: ubuntu-latest
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
 
     steps:
       - name: Checkout PR branch
@@ -25,12 +26,26 @@ jobs:
 
       - name: Convert changed files to markdown
         run: |
-          git fetch origin "${{ github.event.pull_request.base.ref }}" --depth=1
-
           changed_files=()
-          while IFS= read -r -d '' file; do
-            changed_files+=("$file")
-          done < <(git diff --name-only --diff-filter=ACMRT -z "origin/${{ github.event.pull_request.base.ref }}...HEAD")
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch origin "${{ github.event.pull_request.base.ref }}" --depth=1
+            while IFS= read -r -d '' file; do
+              changed_files+=("$file")
+            done < <(git diff --name-only --diff-filter=ACMRT -z "origin/${{ github.event.pull_request.base.ref }}...HEAD")
+          else
+            BEFORE_SHA="${{ github.event.before }}"
+            AFTER_SHA="${{ github.sha }}"
+
+            if [ "$BEFORE_SHA" = "0000000000000000000000000000000000000000" ]; then
+              while IFS= read -r -d '' file; do
+                changed_files+=("$file")
+              done < <(git ls-files -z)
+            else
+              while IFS= read -r -d '' file; do
+                changed_files+=("$file")
+              done < <(git diff --name-only --diff-filter=ACMRT -z "$BEFORE_SHA" "$AFTER_SHA")
+            fi
+          fi
 
           if [ "${#changed_files[@]}" -eq 0 ]; then
             echo "No changed files to convert."
